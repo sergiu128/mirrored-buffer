@@ -294,6 +294,81 @@ mod tests {
             .is_some_and(|slice| slice.iter().all(|&x| x == 2))); // TODO apply this everywhere
     }
 
-    // TODO random wrapping tests and ensure committed slice sizes are ok
+    #[test]
+    fn mirrored_buffer_claim_commit_consume_random() {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+
+        let page_size = get_page_size().unwrap();
+        let mut buf = MirroredBuffer::new(page_size, Some("4"), Some(0)).unwrap();
+
+        let mut wrapped = 0;
+        let mut it = 0;
+
+        while wrapped < 12 {
+            let size = rng.gen_range(0..page_size * 2);
+            if let Some(slice) = buf.claim(size) {
+                slice.fill((it & 255) as u8);
+            }
+            if it % 7 == 0 {
+                buf.commit(size);
+                if it % 3 == 0 {
+                    buf.consume(size);
+                }
+            }
+
+            if buf.head > buf.tail {
+                wrapped += 1;
+            }
+
+            it += 1;
+        }
+
+        buf.consume(buf.used());
+        assert!(buf.used() == 0);
+        assert!(buf.free() == buf.size());
+        assert!(buf.size() == page_size);
+    }
+
+    #[test]
+    fn mirrored_buffer_committed() {
+        let mut buf = MirroredBuffer::new(1, Some("5"), Some(0)).unwrap();
+
+        let claimed = buf
+            .claim(buf.size())
+            .expect("could not claim the entire size");
+        claimed.fill(1);
+
+        assert!(buf.commit(buf.size()) == buf.size());
+        assert!(buf.used() == buf.size());
+        assert!(buf.head == buf.tail);
+
+        let committed = buf.committed().expect("should have something committed");
+        assert!(committed.len() == buf.size());
+
+        assert!(buf.size() > 100);
+        buf.consume(100);
+        let committed = buf.committed().unwrap();
+        assert!(committed.len() == buf.size() - 100);
+        assert!(buf.head > buf.tail); // wrapped
+
+        let claimed = buf.claim(50).expect("could not claim 50");
+        claimed.fill(2);
+
+        assert!(buf.commit(50) == 50);
+        assert!(buf.used() == buf.size() - 50);
+        assert!(buf.head > buf.tail);
+
+        let committed = buf.committed().unwrap();
+        assert!(committed.len() == buf.size() - 50);
+        for i in 0..committed.len() - 50 {
+            assert!(committed[i] == 1);
+        }
+        for i in committed.len() - 50..committed.len() {
+            assert!(committed[i] == 2);
+        }
+        assert!(buf.slice.iter().all(|&x| x == 1 || x == 2));
+    }
+
     // TODO iterator over
 }
