@@ -3,6 +3,9 @@ use std::ffi::CString;
 use std::io::{Error, ErrorKind};
 use std::process;
 
+// TODO custom errors
+// TODO example usage with UDS + a frame and a streaming codec
+
 fn get_page_size() -> Result<usize, Error> {
     let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page_size <= 0 {
@@ -291,7 +294,7 @@ mod tests {
         assert!(buf.slice.iter().all(|&x| x == 2));
         assert!(buf
             .committed()
-            .is_some_and(|slice| slice.iter().all(|&x| x == 2))); // TODO apply this everywhere
+            .is_some_and(|slice| slice.iter().all(|&x| x == 2)));
     }
 
     #[test]
@@ -369,6 +372,4 @@ mod tests {
         }
         assert!(buf.slice.iter().all(|&x| x == 1 || x == 2));
     }
-
-    // TODO iterator over
 }
