@@ -257,6 +257,50 @@ mod tests {
     }
 
     #[test]
+    fn mirrored_buffer_is_mirrored() {
+        let mut buf = MirroredBuffer::new(
+            get_page_size().unwrap(),
+            Some(&next_buffer_index()),
+            Some(0),
+        )
+        .unwrap();
+
+        let size = buf.size();
+        let claim_size = size / 2;
+        assert!(claim_size > 0);
+        {
+            let claimed = buf.claim(claim_size).unwrap();
+            assert!(claimed.iter().all(|&x| x == 0));
+            claimed.fill(8);
+            assert!(buf.head == 0);
+            assert!(buf.tail == 0);
+        }
+        buf.commit(claim_size);
+        assert!(buf.head == 0);
+        assert!(buf.tail == claim_size);
+
+        // We wrote 8 in the first half of [0..size] which is mirrored in
+        // [size..size * 2] - as such, the latter slice should also have 8 in
+        // its first half.
+        assert!(&buf.slice[size..size + claim_size].iter().all(|&x| x == 8));
+        assert!(&buf.slice[size + claim_size..size * 2]
+            .iter()
+            .all(|&x| x == 0));
+
+        // We write 13 in the second half of [size..size * 2], expecting it to
+        // get mirrored in the first half of [0..size].
+        let writein = &mut buf.slice[size + claim_size..size * 2];
+        writein.fill(13);
+
+        assert!(&buf.slice[claim_size..size].iter().all(|&x| x == 13));
+
+        // sanity check
+        let committed = buf.committed().unwrap();
+        assert!(committed[..claim_size].iter().all(|&x| x == 8));
+        assert!(committed[claim_size..].iter().all(|&x| x == 13));
+    }
+
+    #[test]
     fn mirrored_buffer_claim_commit_consume() {
         let page_size = get_page_size().unwrap();
         let mut buf = MirroredBuffer::new(page_size, Some(&next_buffer_index()), Some(0)).unwrap();
@@ -270,7 +314,7 @@ mod tests {
             let claimed = buf.claim(claim_size);
             assert!(claimed.is_some());
             let claimed = claimed.unwrap();
-            claimed.iter().all(|&x| x == 0);
+            assert!(claimed.iter().all(|&x| x == 0));
             claimed.fill(1);
         }
         assert!(buf.head == 0);
