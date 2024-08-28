@@ -1,16 +1,14 @@
 use std::cmp;
 use std::ffi::CString;
-use std::io::{Error, ErrorKind};
+use std::io;
 use std::process;
 
-// TODO custom errors
 // TODO example usage with UDS + a frame and a streaming codec
-// TODO test mirroring
 
-fn get_page_size() -> Result<usize, Error> {
+fn get_page_size() -> Result<usize, io::Error> {
     let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page_size <= 0 {
-        return Err(Error::last_os_error());
+        return Err(io::Error::last_os_error());
     }
     Ok(page_size as usize)
 }
@@ -41,10 +39,9 @@ impl<'a> MirroredBuffer<'a> {
         size: usize,
         name_suffix: Option<&str>,
         initial_value: Option<u8>,
-    ) -> Result<MirroredBuffer<'a>, Error> {
+    ) -> Result<MirroredBuffer<'a>, io::Error> {
         if size == 0 {
-            // XXX: should have a custom error type
-            return Err(Error::new(ErrorKind::Other, "invalid size"));
+            return Err(io::Error::new(io::ErrorKind::Other, "invalid size"));
         }
 
         let name;
@@ -70,18 +67,18 @@ impl<'a> MirroredBuffer<'a> {
             )
         };
         if fd == -1 {
-            return Err(Error::last_os_error());
+            return Err(io::Error::last_os_error());
         }
 
         let size_total = round_up_to_page_size(size);
         let size_mask = size_total - 1;
 
         if size_total & size_mask != 0 {
-            return Err(Error::new(ErrorKind::Other, "invalid page size"));
+            return Err(io::Error::new(io::ErrorKind::Other, "invalid page size"));
         }
 
         if unsafe { libc::ftruncate(fd, size_total as libc::off_t) } == -1 {
-            return Err(Error::last_os_error());
+            return Err(io::Error::last_os_error());
         }
 
         let addr = unsafe {
@@ -95,10 +92,10 @@ impl<'a> MirroredBuffer<'a> {
             )
         };
         if addr == libc::MAP_FAILED {
-            return Err(Error::last_os_error());
+            return Err(io::Error::last_os_error());
         }
 
-        let remap = |addr: *mut libc::c_void| -> Result<(), Error> {
+        let remap = |addr: *mut libc::c_void| -> Result<(), io::Error> {
             let ret = unsafe {
                 libc::mmap(
                     addr,
@@ -111,7 +108,7 @@ impl<'a> MirroredBuffer<'a> {
             };
 
             if ret == libc::MAP_FAILED {
-                return Err(Error::last_os_error());
+                return Err(io::Error::last_os_error());
             }
             Ok(())
         };
@@ -193,7 +190,7 @@ impl<'a> Drop for MirroredBuffer<'a> {
     fn drop(&mut self) {
         println!("dropped");
         if unsafe { libc::shm_unlink(self.name.as_ptr()) } != 0 {
-            panic!("{}", Error::last_os_error());
+            panic!("{}", io::Error::last_os_error());
         }
     }
 }
