@@ -5,6 +5,7 @@ use std::process;
 
 // TODO custom errors
 // TODO example usage with UDS + a frame and a streaming codec
+// TODO test mirroring
 
 fn get_page_size() -> Result<usize, Error> {
     let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
@@ -202,6 +203,27 @@ mod tests {
     use super::*;
     use crate::MirroredBuffer;
 
+    // Used to prevent opening a MirroredBuffer on an already existing one,
+    // which results in an error as the underlying tmpfs file is opened in
+    // O_EXCL mode. O_EXCL ensures shm_open fails if the underlying file
+    // already exists.
+    //
+    // This can happen if we destroy a MirroredBuffer and then quickly create
+    // a new one with the same exact name. It is a result of calling shm_unlink
+    // when Dropping the MirroredBuffer - the syscall might take a some time to
+    // complete, notably more than it takes the binary to go to the next test
+    // and create a new MirroredBuffer with the same name.
+    //
+    // As a result, each test creates a unique MirroredBuffer by providing the
+    // return value of `next_buffer_index()` as a suffix.
+    static mut BUFFER_INDEX: i32 = 0;
+
+    fn next_buffer_index() -> String {
+        let index = unsafe { BUFFER_INDEX };
+        unsafe { BUFFER_INDEX += 1 };
+        return index.to_string();
+    }
+
     #[test]
     fn round_up_to_page_size() {
         let page_size = get_page_size().unwrap();
@@ -216,11 +238,11 @@ mod tests {
 
     #[test]
     fn mirrored_buffer_new() {
-        let buf = MirroredBuffer::new(0, Some("1"), None);
+        let buf = MirroredBuffer::new(0, Some(&next_buffer_index()), None);
         assert!(buf.is_err());
 
         let page_size = get_page_size().unwrap();
-        let buf = MirroredBuffer::new(page_size, Some("2"), None).unwrap();
+        let buf = MirroredBuffer::new(page_size, Some(&next_buffer_index()), None).unwrap();
 
         assert!(buf.name().contains("mirrored-buffer"));
         assert!(buf.head == 0);
@@ -237,7 +259,7 @@ mod tests {
     #[test]
     fn mirrored_buffer_claim_commit_consume() {
         let page_size = get_page_size().unwrap();
-        let mut buf = MirroredBuffer::new(page_size, Some("3"), Some(0)).unwrap();
+        let mut buf = MirroredBuffer::new(page_size, Some(&next_buffer_index()), Some(0)).unwrap();
 
         assert!(buf.claim(0) == None);
 
@@ -303,7 +325,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         let page_size = get_page_size().unwrap();
-        let mut buf = MirroredBuffer::new(page_size, Some("4"), Some(0)).unwrap();
+        let mut buf = MirroredBuffer::new(page_size, Some(&next_buffer_index()), Some(0)).unwrap();
 
         let mut wrapped = 0;
         let mut it = 0;
@@ -335,7 +357,7 @@ mod tests {
 
     #[test]
     fn mirrored_buffer_committed() {
-        let mut buf = MirroredBuffer::new(1, Some("5"), Some(0)).unwrap();
+        let mut buf = MirroredBuffer::new(1, Some(&next_buffer_index()), Some(0)).unwrap();
 
         let claimed = buf
             .claim(buf.size())
