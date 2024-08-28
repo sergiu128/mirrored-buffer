@@ -1,25 +1,11 @@
-use std::cmp;
-use std::ffi::CString;
-use std::io;
-use std::process;
+mod error;
+mod util;
+
+pub use error::{Error, ErrorKind};
+use std::{cmp, ffi::CString, io, process};
+use util::round_up_to_page_size;
 
 // TODO example usage with UDS + a frame and a streaming codec
-
-fn get_page_size() -> Result<usize, io::Error> {
-    let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-    if page_size <= 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(page_size as usize)
-}
-
-fn round_up_to_page_size(n: usize) -> usize {
-    let page_size = get_page_size().expect("could not get the system's page size");
-    if n > 0 && n % page_size == 0 {
-        return n;
-    }
-    (n / page_size + 1) * page_size
-}
 
 pub struct MirroredBuffer<'a> {
     name: CString,
@@ -35,13 +21,13 @@ pub struct MirroredBuffer<'a> {
 }
 
 impl<'a> MirroredBuffer<'a> {
-    fn new(
+    pub fn new(
         size: usize,
         name_suffix: Option<&str>,
         initial_value: Option<u8>,
-    ) -> Result<MirroredBuffer<'a>, io::Error> {
+    ) -> Result<MirroredBuffer<'a>, Error> {
         if size == 0 {
-            return Err(io::Error::new(io::ErrorKind::Other, "invalid size"));
+            return Err(Error::invalid_size(size));
         }
 
         let name;
@@ -67,18 +53,18 @@ impl<'a> MirroredBuffer<'a> {
             )
         };
         if fd == -1 {
-            return Err(io::Error::last_os_error());
+            return Err(Error::last_os_error());
         }
 
         let size_total = round_up_to_page_size(size);
         let size_mask = size_total - 1;
 
         if size_total & size_mask != 0 {
-            return Err(io::Error::new(io::ErrorKind::Other, "invalid page size"));
+            return Err(Error::invalid_size(size_total));
         }
 
         if unsafe { libc::ftruncate(fd, size_total as libc::off_t) } == -1 {
-            return Err(io::Error::last_os_error());
+            return Err(Error::last_os_error());
         }
 
         let addr = unsafe {
@@ -92,10 +78,10 @@ impl<'a> MirroredBuffer<'a> {
             )
         };
         if addr == libc::MAP_FAILED {
-            return Err(io::Error::last_os_error());
+            return Err(Error::last_os_error());
         }
 
-        let remap = |addr: *mut libc::c_void| -> Result<(), io::Error> {
+        let remap = |addr: *mut libc::c_void| -> Result<(), Error> {
             let ret = unsafe {
                 libc::mmap(
                     addr,
@@ -108,7 +94,7 @@ impl<'a> MirroredBuffer<'a> {
             };
 
             if ret == libc::MAP_FAILED {
-                return Err(io::Error::last_os_error());
+                return Err(Error::last_os_error());
             }
             Ok(())
         };
@@ -197,8 +183,7 @@ impl<'a> Drop for MirroredBuffer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::MirroredBuffer;
+    use crate::{util::get_page_size, MirroredBuffer};
 
     // Used to prevent opening a MirroredBuffer on an already existing one,
     // which results in an error as the underlying tmpfs file is opened in
@@ -219,18 +204,6 @@ mod tests {
         let index = unsafe { BUFFER_INDEX };
         unsafe { BUFFER_INDEX += 1 };
         return index.to_string();
-    }
-
-    #[test]
-    fn round_up_to_page_size() {
-        let page_size = get_page_size().unwrap();
-        println!("page size is {}", page_size);
-        assert!(super::round_up_to_page_size(0) == page_size);
-        assert!(super::round_up_to_page_size(1) == page_size);
-        assert!(super::round_up_to_page_size(page_size - 1) == page_size);
-        assert!(super::round_up_to_page_size(page_size) == page_size);
-        assert!(super::round_up_to_page_size(page_size + 1) == page_size * 2);
-        assert!(super::round_up_to_page_size(page_size * 2) == page_size * 2);
     }
 
     #[test]
