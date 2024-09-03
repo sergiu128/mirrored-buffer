@@ -237,13 +237,13 @@ mod tests {
         let size = buf.size();
         let claim_size = size / 2;
         assert!(claim_size > 0);
-        {
-            let claimed = buf.claim(claim_size).unwrap();
-            assert!(claimed.iter().all(|&x| x == 0));
-            claimed.fill(8);
-            assert!(buf.head == 0);
-            assert!(buf.tail == 0);
-        }
+
+        let claimed = buf.claim(claim_size).unwrap();
+        assert!(claimed.iter().all(|&x| x == 0));
+        claimed.fill(8);
+        assert!(buf.head == 0);
+        assert!(buf.tail == 0);
+
         buf.commit(claim_size);
         assert!(buf.head == 0);
         assert!(buf.tail == claim_size);
@@ -278,14 +278,13 @@ mod tests {
 
         // claim, head and tail do not change
         let claim_size = page_size / 2;
-        {
-            assert!(claim_size > 0);
-            let claimed = buf.claim(claim_size);
-            assert!(claimed.is_some());
-            let claimed = claimed.unwrap();
-            assert!(claimed.iter().all(|&x| x == 0));
-            claimed.fill(1);
-        }
+        assert!(claim_size > 0);
+        let claimed = buf.claim(claim_size);
+        assert!(claimed.is_some());
+        let claimed = claimed.unwrap();
+        assert!(claimed.iter().all(|&x| x == 0));
+        claimed.fill(1);
+
         assert!(buf.head == 0);
         assert!(buf.tail == 0);
         assert!(buf.used() == 0);
@@ -308,12 +307,11 @@ mod tests {
         // now we force the ring buffer to wrap by claiming bast the end
         assert!(buf.head == buf.tail && buf.head > 0); // ensure we wrap
         let head_before = buf.head;
-        {
-            let claimed = buf.claim(page_size);
-            assert!(claimed.is_some());
-            let claimed = claimed.unwrap();
-            claimed.fill(2);
-        }
+        let claimed = buf.claim(page_size);
+        assert!(claimed.is_some());
+        let claimed = claimed.unwrap();
+        claimed.fill(2);
+
         assert!(buf.head == head_before);
         assert!(buf.tail == head_before);
         assert!(buf.used() == 0);
