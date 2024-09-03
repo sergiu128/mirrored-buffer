@@ -37,13 +37,12 @@ impl<'a> MirroredBuffer<'a> {
             name = format!("/mirrored-buffer-{}", process::id());
         }
 
-        let name = CString::new(name.as_str()).expect(
-            format!(
+        let name = CString::new(name.as_str()).unwrap_or_else(|_| {
+            panic!(
                 "invalid name: {} - contains a 0-byte when it should not",
-                name
+                name,
             )
-            .as_str(),
-        );
+        });
 
         let fd = unsafe {
             libc::shm_open(
@@ -143,21 +142,21 @@ impl<'a> MirroredBuffer<'a> {
         if size == 0 {
             return None;
         }
-        return Some(&mut self.slice[self.tail..(self.tail + size)]);
+        Some(&mut self.slice[self.tail..(self.tail + size)])
     }
 
     pub fn commit(&mut self, mut size: usize) -> usize {
         size = cmp::min(size, self.free());
         self.size_used += size;
         self.tail = (self.tail + size) & self.size_mask;
-        return size;
+        size
     }
 
     pub fn consume(&mut self, mut size: usize) -> usize {
         size = cmp::min(size, self.used());
         self.size_used -= size;
         self.head = (self.head + size) & self.size_mask;
-        return size;
+        size
     }
 
     pub fn committed(&self) -> Option<&[u8]> {
@@ -168,7 +167,7 @@ impl<'a> MirroredBuffer<'a> {
         if self.head < self.tail {
             return Some(&self.slice[self.head..self.tail]);
         }
-        return Some(&self.slice[self.head..(self.tail + self.size())]);
+        Some(&self.slice[self.head..(self.tail + self.size())])
     }
 }
 
@@ -203,7 +202,7 @@ mod tests {
     fn next_buffer_index() -> String {
         let index = unsafe { BUFFER_INDEX };
         unsafe { BUFFER_INDEX += 1 };
-        return index.to_string();
+        index.to_string()
     }
 
     #[test]
@@ -275,7 +274,7 @@ mod tests {
         let page_size = get_page_size().unwrap();
         let mut buf = MirroredBuffer::new(page_size, Some(&next_buffer_index()), Some(0)).unwrap();
 
-        assert!(buf.claim(0) == None);
+        assert!(buf.claim(0).is_none());
 
         // claim, head and tail do not change
         let claim_size = page_size / 2;
@@ -400,11 +399,11 @@ mod tests {
 
         let committed = buf.committed().unwrap();
         assert!(committed.len() == buf.size() - 50);
-        for i in 0..committed.len() - 50 {
-            assert!(committed[i] == 1);
+        for x in committed[..committed.len() - 50].iter() {
+            assert!(*x == 1);
         }
-        for i in committed.len() - 50..committed.len() {
-            assert!(committed[i] == 2);
+        for x in committed[committed.len() - 50..].iter() {
+            assert!(*x == 2);
         }
         assert!(buf.slice.iter().all(|&x| x == 1 || x == 2));
     }
