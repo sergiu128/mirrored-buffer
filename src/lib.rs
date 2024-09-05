@@ -173,7 +173,6 @@ impl<'a> MirroredBuffer<'a> {
 
 impl<'a> Drop for MirroredBuffer<'a> {
     fn drop(&mut self) {
-        println!("dropped");
         if unsafe { libc::shm_unlink(self.name.as_ptr()) } != 0 {
             panic!("{}", io::Error::last_os_error());
         }
